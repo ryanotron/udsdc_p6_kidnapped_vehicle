@@ -248,4 +248,9 @@ inline bool read_landmark_data(std::string filename,
   return true;
 }
 
+inline double gaussian(double x, double mu, double sg) {
+    double normer = 1.0/(sqrt(2*M_PI)*sg);
+    return normer * exp(-0.5*pow(mu-x, 2)/sg/sg);
+}
+
 #endif  // HELPER_FUNCTIONS_H_

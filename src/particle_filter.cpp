@@ -30,7 +30,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
    * NOTE: Consult particle_filter.h for more information about this method 
    *   (and others in this file).
    */
-    num_particles = 10;  // [x] TODO: Set the number of particles
+    num_particles = 8;  // [x] TODO: Set the number of particles
     
     std::default_random_engine gen;
     std::normal_distribution<double> dist_x(x, std[0]);
@@ -122,11 +122,14 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
    *   and the following is a good resource for the actual equation to implement
    *   (look at equation 3.33) http://planning.cs.uiuc.edu/node99.html
    */
+    
+    int obsize = observations.size();
     // for each particle
     for (int i = 0; i < num_particles; i++) {
-        Particle pi = particles[i];
-        pi.associations.clear();
-        
+        Particle pi = particles[i];    
+        vector<int> associations (obsize);
+        vector<double> sense_x (obsize);
+        vector<double> sense_y (obsize);
         double p_obs = 1.0;
         
         // for each observation
@@ -137,8 +140,8 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
             double y_m = obsj.x*sin(pi.theta) + obsj.y*cos(pi.theta) + pi.y;
             
             // find closest landmark in map
-            int closest_id = -1;
-            double closest_d = sensor_range;
+            int closest_id = 0;
+            double closest_d = 100*sensor_range;
             double closest_x, closest_y;
             
             for (unsigned int k = 0; k < map_landmarks.landmark_list.size(); k++) {
@@ -146,7 +149,7 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                 double dee = dist(x_m, y_m, markk.x_f, markk.y_f);
                 if (dee < closest_d) {
                     closest_d = dee;
-                    closest_id = k;
+                    closest_id = markk.id_i;
                     closest_x = markk.x_f;
                     closest_y = markk.y_f;
                 }
@@ -157,7 +160,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                 closest_y = y_m + sensor_range;
             }
             
-            pi.associations.push_back(closest_id);
+            associations[j] = closest_id;
+            sense_x[j] = closest_x;
+            sense_y[j] = closest_y;            
             
             // find measurement likelihood with gaussian mu = 0, 
             // x = predicted-observed, and sigma = sensor stdev
@@ -176,6 +181,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
         
         // set new weight
         pi.weight = p_obs;
+        pi.associations = associations;
+        pi.sense_x = sense_x;
+        pi.sense_y = sense_y;
         particles[i] = pi;
         weights[i] = p_obs;
     }

@@ -30,7 +30,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
    * NOTE: Consult particle_filter.h for more information about this method 
    *   (and others in this file).
    */
-    num_particles = 10;  // [x] TODO: Set the number of particles
+    num_particles = 8;  // [x] TODO: Set the number of particles
     
     std::default_random_engine gen;
     std::normal_distribution<double> dist_x(x, std[0]);
@@ -81,7 +81,7 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
 
         // if yaw_rate is too small, v_per_w is NaN, then it's game over
         // so we need a fallback
-        if (yaw_rate < -1.0e-9 || yaw_rate > 1.0e-9) {
+        if (yaw_rate < -1.0e-3 || yaw_rate > 1.0e-3) {
             particles[i].x = x0 + v_per_w * (sin(th0 + dtheta) - sin(th0)) + dist_x(gen);
             particles[i].y = y0 + v_per_w * (cos(th0) - cos(th0 + dtheta)) + dist_y(gen);
         }
@@ -122,10 +122,71 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
    *   and the following is a good resource for the actual equation to implement
    *   (look at equation 3.33) http://planning.cs.uiuc.edu/node99.html
    */
-    // for each particle
+  
+    // find best particle
+    int best_picle = 0;
+    for (int i = 1; i < num_particles; i++) {
+        if (weights[i] > weights[best_picle]) {
+            best_picle = i;
+        }
+    }
+    
+    // gather N landmarks closest to best particle (N = obs size)
+    int num_candidates = 2*observations.size();
+    vector<Map::single_landmark_s> closest_landmarks;
+    vector<double> distances;
+    double picle_x = particles[best_picle].x;
+    double picle_y = particles[best_picle].y;
+    
+    Map::single_landmark_s mark = map_landmarks.landmark_list[0];
+    double dee = dist(picle_x, picle_y, mark.x_f, mark.y_f);
+    
+    closest_landmarks.push_back(mark);
+    distances.push_back(dee);
+    
+    for (int i = 1; i < map_landmarks.landmark_list.size(); i++) {
+        mark = map_landmarks.landmark_list[i];
+        dee = dist(picle_x, picle_y, mark.x_f, mark.y_f);
+        
+        // initialise candidates list, insert landmarks and distances such that
+        // they are sorted ascending by distance
+        if (i < num_candidates) {
+            unsigned int len_dist = distances.size();
+            for (unsigned int j = 0; j < len_dist; j++) {
+                if (dee < distances[j]) {
+                    distances.insert(distances.begin()+j, dee);
+                    closest_landmarks.insert(closest_landmarks.begin()+j, mark);
+                    break;
+                }
+            }
+            if (distances.size() < i+1) {
+                distances.push_back(dee);
+                closest_landmarks.push_back(mark);
+            }
+        }
+        // proper search for N closest landmark
+        // for each landmark, if it is closer to best particle than any of
+        // current candidate, place it in right place, then pop the last
+        else {
+            for (int j = 0; j < num_candidates; j++) {
+                if (dee < distances[j]) {
+                    distances.insert(distances.begin()+j, dee);
+                    closest_landmarks.insert(closest_landmarks.begin()+j, mark);
+                    distances.pop_back();
+                    closest_landmarks.pop_back();
+                    break;
+                }
+            }
+        }
+    }
+    
+    // for each particle, do landmark association from limited pool,
+    // then calculate observation likelihood
     for (int i = 0; i < num_particles; i++) {
         Particle pi = particles[i];
         pi.associations.clear();
+        pi.sense_x.clear();
+        pi.sense_y.clear();
         
         double p_obs = 1.0;
         
@@ -136,13 +197,13 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
             double x_m = obsj.x*cos(pi.theta) - obsj.y*sin(pi.theta) + pi.x;
             double y_m = obsj.x*sin(pi.theta) + obsj.y*cos(pi.theta) + pi.y;
             
-            // find closest landmark in map
-            int closest_id = -1;
-            double closest_d = sensor_range;
+            // find closest landmark in shortlist
+            int closest_id = 0;
+            double closest_d = 100*sensor_range;
             double closest_x, closest_y;
             
-            for (unsigned int k = 0; k < map_landmarks.landmark_list.size(); k++) {
-                Map::single_landmark_s markk = map_landmarks.landmark_list[k];
+            for (unsigned int k = 0; k < closest_landmarks.size(); k++) {
+                Map::single_landmark_s markk = closest_landmarks[k];
                 double dee = dist(x_m, y_m, markk.x_f, markk.y_f);
                 if (dee < closest_d) {
                     closest_d = dee;
@@ -157,7 +218,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
                 closest_y = y_m + sensor_range;
             }
             
-            pi.associations.push_back(closest_id);
+            pi.associations.push_back(closest_landmarks[closest_id].id_i);
+            pi.sense_x.push_back(closest_x);
+            pi.sense_y.push_back(closest_y);
             
             // find measurement likelihood with gaussian mu = 0, 
             // x = predicted-observed, and sigma = sensor stdev
@@ -171,7 +234,9 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
             // consideration
             
             // gaussian is defined in helper_functions.h
-            p_obs *= gaussian(x_m - closest_x, 0, std_landmark[0])*gaussian(y_m - closest_y, 0, std_landmark[1]);
+            
+            double p_obs_j = gaussian(x_m - closest_x, 0.0, std_landmark[0])*gaussian(y_m - closest_y, 0.0, std_landmark[1]);
+            p_obs *= p_obs_j;
         }
         
         // set new weight
